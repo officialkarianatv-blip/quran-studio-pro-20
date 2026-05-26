@@ -786,6 +786,9 @@ function InlineTextEditor({
       }
 
       // Cascade enabled — push overflow forward into subsequent rows.
+      // Snapshot pre-edit text so cancel can restore it.
+      const preEditText = lastSavedRef.current;
+
       lastSavedRef.current = fits;
       useOverridesStore.getState().patchLocal(lk, { text: fits });
       el.textContent = fits;
@@ -815,14 +818,58 @@ function InlineTextEditor({
       // Strip non-reflow props before passing into reflowFrom.
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { cascade: _c, scopedPageIds: _s, ...reflowArgs } = base;
-      void reflowFromAsync({
-        ...reflowArgs,
+
+      const runReflow = () => {
+        void reflowFromAsync({
+          ...reflowArgs,
+          startPageId: targetPageId,
+          startRowIndex: targetRowIdx,
+          startOverflow: overflow,
+        });
+      };
+
+      // Dry-run to detect cross-page / cross-surah impact for confirmation.
+      const scopedPageList = base.allPages.filter((p) =>
+        base.scopedPageIds.includes(p.id),
+      );
+      const plan = planCascade({
         startPageId: targetPageId,
         startRowIndex: targetRowIdx,
-        startOverflow: overflow,
+        newCurrentText: "", // will be computed inside the cascade
+        pushedText: overflow,
+        layer,
+        allPages: scopedPageList,
+        localMap: base.localMap,
+        layerKeyFn: base.layerKeyFn,
+        fontFamily: base.fontFamily,
+        fontSize: base.fontSize,
+        availableWidth: base.availableWidth,
+        surahPageIds: base.surahPageIds,
       });
+
+      if (plan.crossesPage || plan.crossesSurah) {
+        // Avoid stacking dialogs on rapid keystrokes.
+        if (useEditorStore.getState().pendingReflow) return;
+        useEditorStore.getState().setPendingReflow({
+          crossesPage: plan.crossesPage,
+          crossesSurah: plan.crossesSurah,
+          affectedPages: plan.affectedPages,
+          confirm: runReflow,
+          cancel: () => {
+            // Restore the start row to its pre-edit text (drop the typed
+            // overflow words) so user can decide what to do next.
+            useOverridesStore.getState().patchLocal(lk, { text: preEditText });
+            lastSavedRef.current = preEditText;
+            if (ref.current) ref.current.textContent = preEditText;
+          },
+        });
+        return;
+      }
+
+      runReflow();
       return;
     }
+
 
     // Text fits — if there is spare room, try to back-fill from subsequent rows.
     const currentWidth = measureTextWidth(currentText, fontFamily, fontSize);
