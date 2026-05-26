@@ -19,8 +19,8 @@ function safeEqual(a: string, b: string) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-let _sb: ReturnType<typeof createClient> | null = null;
-function sb() {
+let _sb: any = null;
+function sb(): any {
   if (!_sb) {
     _sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   }
