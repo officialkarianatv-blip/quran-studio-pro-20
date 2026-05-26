@@ -615,8 +615,15 @@ export function reflowLayerText(opts: ReflowLayerTextOptions): ReflowLayerTextRe
   } = opts;
 
   const editorState = useEditorStore.getState();
+  if (opts.scope === undefined && typeof console !== "undefined") {
+    // Callers should always pass scope explicitly to avoid races against
+    // user-driven scope changes between the trigger and the reflow walk.
+    // eslint-disable-next-line no-console
+    console.warn("[reflowLayerText] called without scope; falling back to editor state");
+  }
   const scope = opts.scope ?? editorState.scope;
   const eff = effectiveReflowScope(scope, layer, pageId);
+
 
   const reflowState = useReflowStore.getState();
   const pages = reflowState.pages as unknown as Array<{ id: string; lines: FabricLine[] }>;
