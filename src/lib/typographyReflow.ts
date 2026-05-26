@@ -94,19 +94,34 @@ export async function patchTypographyScoped(
   // Use the patched fontPx if present; otherwise let reflow read it later.
   const newFontPx = typeof patch.fontPx === "number" ? patch.fontPx : undefined;
 
-  // Schedule reflow for each affected layer-row in a microtask so the
-  // override store mutation is fully committed first.
+  // InDesign-style cascade: instead of reflowing every affected row
+  // (which would N²-overwrite each other when font size grows across a
+  // surah), we run reflow once per affected PAGE starting at the lowest
+  // row index on that page. The cascade walks forward through subsequent
+  // rows/pages within `eff` scope and naturally handles all overflow.
+  const firstPerPage = new Map<string, { key: string; rowIndex: number; layer: ReflowLayer }>();
+  for (const k of keys) {
+    const parsed = parseLayerKey(k);
+    if (!parsed) continue;
+    const prev = firstPerPage.get(parsed.pageId);
+    if (!prev || parsed.rowIndex < prev.rowIndex) {
+      firstPerPage.set(parsed.pageId, { key: k, rowIndex: parsed.rowIndex, layer: parsed.layer });
+    }
+  }
+
+  // Schedule reflow in a microtask so the override store mutation is
+  // fully committed first.
   queueMicrotask(() => {
-    for (const k of keys) {
+    for (const { key: k, rowIndex, layer } of firstPerPage.values()) {
       const parsed = parseLayerKey(k);
       if (!parsed) continue;
-      const family = parsed.layer === "arabic" ? ctx.arabicFontFamily : ctx.banglaFontFamily;
-      const fontSize = newFontPx ?? readFontPxFromStore(k, parsed.layer);
+      const family = layer === "arabic" ? ctx.arabicFontFamily : ctx.banglaFontFamily;
+      const fontSize = newFontPx ?? readFontPxFromStore(k, layer);
       try {
         const result = reflowLayerText({
           pageId: parsed.pageId,
-          rowIndex: parsed.rowIndex,
-          layer: parsed.layer,
+          rowIndex,
+          layer,
           reason: "typography",
           fontFamily: family,
           fontSize,
@@ -131,7 +146,8 @@ function readFontPxFromStore(layerK: string, layer: ReflowLayer): number {
   const s = useOverridesStore.getState();
   const ov = s.local[layerK];
   if (typeof ov?.fontPx === "number") return ov.fontPx;
-  if (layer === "arabic") return s.global.arabicFontPx ?? MASTER_DEFAULTS.arabicFontPx ?? 40;
+  if (layer === "arabic") return s.global.arabicFontPx ?? MASTER_DEFAULTS.arabicFontPx ?? 50;
   return s.global.banglaFontPx ?? MASTER_DEFAULTS.banglaFontPx ?? 18;
 }
+
 
