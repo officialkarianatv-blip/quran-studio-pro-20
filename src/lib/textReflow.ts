@@ -265,6 +265,9 @@ export function backFillFrom(opts: BackFillOptions): void {
   const startPageIdx = targetPages.findIndex((p) => p.id === startPageId);
   if (startPageIdx === -1) return;
 
+  // Defensive: if start row itself is Area-mode, back-fill is a no-op.
+  if (isAreaLayer(startPageId, startRowIndex, layer, localMap, layerKeyFn)) return;
+
   // In-memory text cache so iterative writes are visible without re-reading store.
   const textCache = new Map<string, string>();
   const readText = (pid: string, ri: number, lines: FabricLine[]): string => {
