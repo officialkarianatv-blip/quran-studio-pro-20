@@ -29,6 +29,11 @@ export type LocalOverride = {
   text?: string;
   /** Per-element color (used by word-level overrides; CSS color string) */
   color?: string;
+  /** "point" = InDesign Point Text (nowrap, cascade to next row) [DEFAULT]
+   *  "area"  = InDesign Area Text (wraps within row bounds, no cascade) */
+  textMode?: "point" | "area";
+  /** Area Text-এ custom frame height (px). null/undefined = auto (fit content) */
+  areaHeight?: number | null;
 };
 
 /** Stable keys — logical (verse-based) for words/symbols, page-bound for rows.

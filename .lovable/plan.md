@@ -1,48 +1,56 @@
-## অডিট ফলাফল
+## STEP 1 — `LocalOverride` টাইপে Area Text fields যোগ
 
-পূর্ব রাউন্ডে A ও E fix হয়েছে। বাকি ৫ টা ঝুঁকি যাচাই:
+পুরো PARAGRAPH_WRAP_PLAN.md (৭ steps) পড়েছি। এটি **শুধু STEP 1** এর plan — InDesign-style Area Text feature এর foundation (type definition)।
 
-| Id | ঝুঁকি | বর্তমান অবস্থা | অ্যাকশন |
-|----|------|----------------|---------|
-| **B** | `reflowLayerText` scope absent হলে `editorStore` থেকে পড়ে — race ঝুঁকি | typography path সবসময় `scope: eff` পাঠাচ্ছে; FabricLines getReflowBase একই tick-এ scope পড়ছে — race কম | **লো-প্রাইওরিটি**, fallback রাখব কিন্তু caller-এ explicit pass বাধ্যতামূলক করব |
-| **C** | সাধারণ টাইপিং-এ overflow পেজ/সূরা ক্রস করলে dialog নেই | `checkOverflow` সরাসরি `reflowFromAsync` চালায়, planCascade dry-run করে না | **ফিক্স দরকার** ✅ |
-| **D** | সাধারণ টাইপিং-এ surah-cross সতর্কতা নেই | একই | **ফিক্স দরকার** ✅ (user confirmed) |
-| **F** | Bangla splitter ভুল splitter ব্যবহার করছে কিনা | `splitToFitForLayer` → Bangla path `splitToFitCanvas` (whitespace) — সঠিক | ✅ OK |
-| **G** | Link OFF অবস্থায় typography fan-out আটকাচ্ছে কিনা | `effectiveScope` linking OFF হলে scope → "general", fan-out হয় না | ✅ OK |
+### লক্ষ্য
+`LocalOverride` টাইপে দুটি optional field যোগ করা যাতে প্রতিটি layer (arabic/bangla) এ Point Text বনাম Area Text mode আলাদাভাবে store করা যায়। পরবর্তী steps (2-7) এই field দুটির উপর নির্ভর করবে।
 
----
+### পরিবর্তন
 
-## পরিকল্পনা (Fix C/D + B)
+**ফাইল:** `src/state/overridesStore.ts` (lines 16–32)
 
-### Fix C/D — সাধারণ টাইপিং-এ page/surah-cross dialog
+বর্তমান `LocalOverride` type-এর শেষে (line 31 `color?` এর পরে) দুটি নতুন field যোগ:
 
-`src/components/studio/FabricLines.tsx`-এর `checkOverflow` ফাংশনে (lines ~753–841):
+```typescript
+export type LocalOverride = {
+  // ... existing fields (dx, dy, scale, fontPx, leading, tracking,
+  // vScale, hScale, baseline, align, text, color) — অপরিবর্তিত ...
 
-1. Overflow পেলে cascade শুরু করার আগে `planCascade` চালাব (dry-run, কোনো store mutation নেই) — শুরু row = `targetPageId, targetRowIdx` (যেমন Enter path-এ আছে)।
-2. `plan.crossesPage || plan.crossesSurah` হলে:
-   - বর্তমান row-এ `fits` apply করব (যাতে user টাইপিং harm না হয়)।
-   - `editorStore.setPendingReflow({...confirm: runReflow, cancel: revertFitsToOriginal})` কল করব।
-   - `CrossPageReflowDialog` ইতিমধ্যে এই signal handle করে।
-3. একই পেজের মধ্যে cascade হলে আগের মতোই directly `reflowFromAsync`।
-4. দ্রুত typing-এ একই overflow-এ বারবার dialog পপ-আপ এড়াতে: একটি `pendingReflow` ইতিমধ্যে সেট থাকলে নতুন cascade trigger করব না।
+  /** "point" = InDesign Point Text (nowrap, cascade to next row) [DEFAULT]
+   *  "area"  = InDesign Area Text (wraps within row bounds, no cascade) */
+  textMode?: "point" | "area";
 
-### Fix B — Scope race tightening
+  /** Area Text-এ custom frame height (px). null/undefined = auto (fit content) */
+  areaHeight?: number | null;
+};
+```
 
-`src/lib/textReflow.ts` → `reflowLayerText`: `scope` undefined হলে warn log করব এবং `editorStore` fallback রাখব (backward compat)। Typography ও inline-edit caller-এর scope explicit pass করার জন্য আজ পরিবর্তন দরকার নেই (ইতিমধ্যে করছে)।
+### কেন এটাই যথেষ্ট STEP 1-এর জন্য
 
----
+- `patchLocal` ইতিমধ্যে generic `Partial<Record<keyof LocalOverride, ...>>` accept করে — নতুন কোনো setter দরকার নেই।
+- `persist` middleware পুরো `local` map serialize করে — নতুন field automatic persist হবে।
+- `temporal` (zundo) undo/redo same map track করে — automatic কাজ করবে।
+- কোনো default value, migration, বা runtime behavior change দরকার নেই — STEP 2-7 সেগুলো handle করবে।
 
-## প্রভাবিত ফাইল
+### যা পরিবর্তন হবে না
 
-- `src/components/studio/FabricLines.tsx` — `checkOverflow`-এ planCascade gate যোগ
-- `src/lib/textReflow.ts` — minor scope-fallback warning
+- `MASTER_DEFAULTS`, `GlobalOverrides`, `resetScoped`, কোনো helper বা store action — কিছুই না।
+- `FabricLines.tsx`, `PropertiesPanel.tsx`, `textReflow.ts`, `canvasMeasure.ts` — STEP 2-7 পর্যন্ত অপরিবর্তিত।
+- কোনো reflow/render behavior — field optional এবং কোথাও read হচ্ছে না।
 
-ব্যাকএন্ড/স্কিমা/Telegram কিছু পাল্টাবে না।
+### Verification (Build mode-এ)
 
----
+1. TypeScript build পাস হবে (নতুন optional field, breaking নয়)।
+2. বিদ্যমান কোনো call site ভাঙবে না — `keyof LocalOverride` এর সাথে compatible।
+3. `ov.textMode` / `ov.areaHeight` read করলে `undefined` আসবে (default Point Text behavior preserved)।
 
-## টেস্ট (preview-এ)
+### পরবর্তী steps (এই plan-এ অন্তর্ভুক্ত নয়)
 
-1. Surah-এর শেষ row-এ অতিরিক্ত word টাইপ করুন (scope=surah) → dialog আসবে।
-2. পেজের শেষ row-তে শুধু page-scope-এ word টাইপ করুন → row-এ clip হবে (cross-page হয় না)।
-3. Link OFF অবস্থায় টাইপিং → কোনো dialog নয়, current row-এ clip + toast।
+STEP 2: FabricLines Arabic/Bangla render — Area Text style
+STEP 3: InlineTextEditor — wrap enable
+STEP 4: PropertiesPanel — Point/Area toggle UI
+STEP 5: textReflow — Area mode early return
+STEP 6: canvasMeasure — calculateAreaTextHeight
+STEP 7: Auto-fit Frame Height button
+
+আপনি approve করলে আমি শুধু STEP 1 implement করব। STEP 2 এর জন্য আবার plan চাইলে জানাবেন।
