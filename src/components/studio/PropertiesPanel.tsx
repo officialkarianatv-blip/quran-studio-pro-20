@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, BookOpen, Clock, Globe,
-  Link2, RotateCcw, ScanLine, Type, Move
+  Link2, RotateCcw, ScanLine, Type, Move, Wand2
 } from "lucide-react";
 import { useEditorStore, type SelectionScope } from "@/state/editorStore";
 import { resetToSessionBaseline, useOverridesStore, type GlobalOverrides, type LocalOverride, layerKey, patchScoped, effectiveScope, effectiveScopeForRow } from "@/state/overridesStore";
@@ -15,10 +15,14 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ARABIC_FONT_PX, BANGLA_FONT_PX } from "./FabricLines";
-import { isTypographyField } from "@/lib/typographyReflow";
+import { ARTBOARD_TEXT_WIDTH, DEFAULT_BANGLA_FONT_FAMILY, isTypographyField } from "@/lib/typographyReflow";
 import { getContextPageId } from "@/lib/editorContext";
 import { useTypographyPatch } from "@/hooks/useTypographyPatch";
 import { ScopeImpactWarningDialog } from "./ScopeImpactWarningDialog";
+import { calculateAreaTextHeight } from "@/lib/areaTextHeight";
+import { getEffectiveText } from "@/lib/textReflow";
+import { useFont } from "@/context/FontContext";
+
 
 
 const SCOPE_META: Record<SelectionScope, { labelBn: string; color: string; icon: React.ElementType; desc: string }> = {
@@ -786,12 +790,46 @@ function CharacterPanel({
   const align    = ov.align    ?? "justify";
   const textMode = (ov.textMode ?? "point") as "point" | "area";
   const areaHeight = ov.areaHeight ?? null;
-
   // selKey looks like "layer:<pageId>:<rowIdx>:<arabic|bangla|symbol>"
   const layerFromKey = (selKey.split(":")[3] ?? null) as LinkLayer | null;
   const linked = useLinkingStore((s) => (layerFromKey ? s[layerFromKey] : false));
   const willFanOut = scope !== "general" && linked;
   const isReflowLayer = layerFromKey === "arabic" || layerFromKey === "bangla";
+
+  // Auto-fit Frame Height (Area mode)
+  const { activeFamily } = useFont();
+  const pages = useReflowStore((s) => s.pages);
+  const parts = selKey.split(":");
+  const pageIdFromKey = parts[1] ?? "";
+  const rowIdxFromKey = Number(parts[2] ?? -1);
+
+  const handleAutoFit = () => {
+    if (!isReflowLayer || !layerFromKey || !pageIdFromKey || rowIdxFromKey < 0) return;
+    const page = pages.find((p) => p.id === pageIdFromKey);
+    if (!page) return;
+    const text = getEffectiveText(
+      pageIdFromKey,
+      rowIdxFromKey,
+      layerFromKey as "arabic" | "bangla",
+      page.lines as never,
+      localMap,
+      layerKey,
+    );
+    const family = layerFromKey === "arabic" ? activeFamily : DEFAULT_BANGLA_FONT_FAMILY;
+    const leadingMult = leading > 0 ? leading / fontPx : 1;
+    const h = calculateAreaTextHeight({
+      text,
+      availableWidth: ARTBOARD_TEXT_WIDTH,
+      fontFamily: family,
+      fontSize: fontPx,
+      leading: leadingMult,
+      layer: layerFromKey as "arabic" | "bangla",
+      paddingY: 4,
+      minHeight: Math.ceil(fontPx * 1.2),
+    });
+    patchLocal(selKey, { areaHeight: h });
+  };
+
 
   const set = (k: string, v: number | string) => {
     if (
@@ -920,6 +958,13 @@ function CharacterPanel({
                 className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-right text-[11px] font-mono outline-none focus:border-sky-400"
               />
               <span className="text-[10px] text-neutral-500">px</span>
+              <button
+                onClick={handleAutoFit}
+                title="Auto-fit: টেক্সট অনুযায়ী উচ্চতা"
+                className="text-neutral-500 hover:text-sky-400"
+              >
+                <Wand2 className="h-3 w-3" />
+              </button>
               {areaHeight != null && (
                 <button
                   onClick={() => patchLocal(selKey, { areaHeight: null })}
@@ -929,6 +974,7 @@ function CharacterPanel({
                   <RotateCcw className="h-3 w-3" />
                 </button>
               )}
+
             </div>
           )}
         </div>
