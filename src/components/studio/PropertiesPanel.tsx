@@ -958,6 +958,13 @@ function CharacterPanel({
                 className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-right text-[11px] font-mono outline-none focus:border-sky-400"
               />
               <span className="text-[10px] text-neutral-500">px</span>
+              <button
+                onClick={handleAutoFit}
+                title="Auto-fit: টেক্সট অনুযায়ী উচ্চতা"
+                className="text-neutral-500 hover:text-sky-400"
+              >
+                <Wand2 className="h-3 w-3" />
+              </button>
               {areaHeight != null && (
                 <button
                   onClick={() => patchLocal(selKey, { areaHeight: null })}
@@ -967,6 +974,7 @@ function CharacterPanel({
                   <RotateCcw className="h-3 w-3" />
                 </button>
               )}
+
             </div>
           )}
         </div>
