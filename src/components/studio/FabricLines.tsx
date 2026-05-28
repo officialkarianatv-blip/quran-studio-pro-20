@@ -1067,6 +1067,8 @@ function InlineTextEditor({
     }
 
     if (e.key === "Backspace") {
+      // Area Text: let default Backspace edit inside the frame; no row collapse.
+      if (textMode === "area") return;
       const el = ref.current;
       if (!el) return;
       const sel = window.getSelection();
