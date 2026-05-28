@@ -197,6 +197,11 @@ export async function reflowFromAsync(opts: ReflowOptions): Promise<void> {
       const firstRow = pi === startPageIdx ? startRowIndex : 0;
 
       for (let ri = firstRow; ri < page.lines.length; ri++) {
+        // Skip Area-mode rows — independent frames don't participate in cascade.
+        if (
+          !(pi === startPageIdx && ri === startRowIndex) &&
+          isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
+        ) continue;
         const lk = layerKeyFn(page.id, ri, layer);
         const existingText =
           pi === startPageIdx && ri === startRowIndex
