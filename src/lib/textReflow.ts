@@ -563,6 +563,14 @@ export function planCascade(opts: PlanCascadeOptions): CascadePlan {
       continue;
     }
 
+    // Area-mode row: jump over it without consuming carry.
+    if (isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)) {
+      ri += 1;
+      continue;
+    }
+
+
+
     const existing = getEffectiveText(
       page.id,
       ri,
