@@ -242,6 +242,8 @@ const FabricRow = memo(function FabricRow({
   const bAlign = (bOv?.align ?? "justify") as React.CSSProperties["textAlign"];
   const bText = bOv?.text ?? slot.bangla ?? "";
   const isBanglaEditing = isTypeTool && selectionKey === bLk && selectionPageId === pageId;
+  const bTextMode = bOv?.textMode ?? "point";
+  const bAreaHeight = bOv?.areaHeight ?? null;
 
   const sDx = sOv?.dx ?? 0;
   const sDy = sOv?.dy ?? 0;
