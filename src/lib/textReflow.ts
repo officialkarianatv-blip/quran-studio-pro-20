@@ -16,6 +16,19 @@ import { measureTextWidthCanvas, splitToFitCanvas, splitToFitForLayer } from "./
 
 export type LayerKind = "arabic" | "bangla";
 
+/** True if the given layer at (pageId, rowIndex) is in Area Text mode
+ *  (independent frame — must be skipped by cascade/back-fill). */
+function isAreaLayer(
+  pageId: string,
+  rowIndex: number,
+  layer: LayerKind,
+  localMap: Record<string, LocalOverride>,
+  layerKeyFn: (pid: string, ri: number, l: LayerKind) => string,
+): boolean {
+  const lk = layerKeyFn(pageId, rowIndex, layer);
+  return localMap[lk]?.textMode === "area";
+}
+
 /**
  * Measures the rendered pixel width of `text`.
  * Uses Canvas API — no DOM reads, no Layout Thrashing.
@@ -116,6 +129,11 @@ export function reflowFrom(opts: ReflowOptions): void {
     const firstRow = pi === startPageIdx ? startRowIndex : 0;
 
     for (let ri = firstRow; ri < page.lines.length; ri++) {
+      // Skip Area-mode rows — independent frames don't participate in cascade.
+      if (
+        !(pi === startPageIdx && ri === startRowIndex) &&
+        isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
+      ) continue;
       const lk = layerKeyFn(page.id, ri, layer);
       // Get existing text for this row (only for rows after the start)
       const existingText =
@@ -179,6 +197,11 @@ export async function reflowFromAsync(opts: ReflowOptions): Promise<void> {
       const firstRow = pi === startPageIdx ? startRowIndex : 0;
 
       for (let ri = firstRow; ri < page.lines.length; ri++) {
+        // Skip Area-mode rows — independent frames don't participate in cascade.
+        if (
+          !(pi === startPageIdx && ri === startRowIndex) &&
+          isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
+        ) continue;
         const lk = layerKeyFn(page.id, ri, layer);
         const existingText =
           pi === startPageIdx && ri === startRowIndex
@@ -242,6 +265,9 @@ export function backFillFrom(opts: BackFillOptions): void {
   const startPageIdx = targetPages.findIndex((p) => p.id === startPageId);
   if (startPageIdx === -1) return;
 
+  // Defensive: if start row itself is Area-mode, back-fill is a no-op.
+  if (isAreaLayer(startPageId, startRowIndex, layer, localMap, layerKeyFn)) return;
+
   // In-memory text cache so iterative writes are visible without re-reading store.
   const textCache = new Map<string, string>();
   const readText = (pid: string, ri: number, lines: FabricLine[]): string => {
@@ -271,6 +297,18 @@ export function backFillFrom(opts: BackFillOptions): void {
     if (nRi >= curPage.lines.length) {
       nPi = pi + 1;
       nRi = 0;
+    }
+    if (nPi >= targetPages.length) break;
+
+    // Skip past Area-mode next rows — they don't donate text.
+    while (
+      nPi < targetPages.length &&
+      targetPages[nPi] &&
+      nRi < targetPages[nPi].lines.length &&
+      isAreaLayer(targetPages[nPi].id, nRi, layer, localMap, layerKeyFn)
+    ) {
+      nRi += 1;
+      if (nRi >= targetPages[nPi].lines.length) { nPi += 1; nRi = 0; }
     }
     if (nPi >= targetPages.length) break;
     const nextPage = targetPages[nPi];
@@ -524,6 +562,14 @@ export function planCascade(opts: PlanCascadeOptions): CascadePlan {
       ri = 0;
       continue;
     }
+
+    // Area-mode row: jump over it without consuming carry.
+    if (isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)) {
+      ri += 1;
+      continue;
+    }
+
+
 
     const existing = getEffectiveText(
       page.id,
