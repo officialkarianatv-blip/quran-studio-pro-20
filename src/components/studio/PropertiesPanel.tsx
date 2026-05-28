@@ -790,8 +790,44 @@ function CharacterPanel({
   const align    = ov.align    ?? "justify";
   const textMode = (ov.textMode ?? "point") as "point" | "area";
   const areaHeight = ov.areaHeight ?? null;
+  const willFanOut = scope !== "general" && linked;
+  const isReflowLayer = layerFromKey === "arabic" || layerFromKey === "bangla";
 
-  // selKey looks like "layer:<pageId>:<rowIdx>:<arabic|bangla|symbol>"
+  // Auto-fit Frame Height (Area mode)
+  const { activeFamily } = useFont();
+  const pages = useReflowStore((s) => s.pages);
+  const localMap = useOverridesStore((s) => s.local);
+  const parts = selKey.split(":");
+  const pageIdFromKey = parts[1] ?? "";
+  const rowIdxFromKey = Number(parts[2] ?? -1);
+
+  const handleAutoFit = () => {
+    if (!isReflowLayer || !layerFromKey || !pageIdFromKey || rowIdxFromKey < 0) return;
+    const page = pages.find((p) => p.id === pageIdFromKey);
+    if (!page) return;
+    const text = getEffectiveText(
+      pageIdFromKey,
+      rowIdxFromKey,
+      layerFromKey as "arabic" | "bangla",
+      page.lines,
+      localMap,
+      layerKey,
+    );
+    const family = layerFromKey === "arabic" ? activeFamily : DEFAULT_BANGLA_FONT_FAMILY;
+    const leadingMult = leading > 0 ? leading / fontPx : 1;
+    const h = calculateAreaTextHeight({
+      text,
+      availableWidth: ARTBOARD_TEXT_WIDTH,
+      fontFamily: family,
+      fontSize: fontPx,
+      leading: leadingMult,
+      layer: layerFromKey as "arabic" | "bangla",
+      paddingY: 4,
+      minHeight: Math.ceil(fontPx * 1.2),
+    });
+    patchLocal(selKey, { areaHeight: h });
+  };
+
   const layerFromKey = (selKey.split(":")[3] ?? null) as LinkLayer | null;
   const linked = useLinkingStore((s) => (layerFromKey ? s[layerFromKey] : false));
   const willFanOut = scope !== "general" && linked;
