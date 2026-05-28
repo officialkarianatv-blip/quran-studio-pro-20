@@ -874,9 +874,69 @@ function CharacterPanel({
         </div>
       </div>
 
+      {/* Text Frame Mode (Point / Area) — Arabic & Bangla layers only */}
+      {isReflowLayer && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[9px] text-neutral-600 uppercase tracking-wider">
+            Text Frame Mode
+          </span>
+          <div className="flex gap-1">
+            {([
+              { value: "point", label: "Point", title: "Point Text — পরের সারিতে ক্যাসকেড" },
+              { value: "area",  label: "Area",  title: "Area Text — ফ্রেমে wrap, ক্যাসকেড নেই" },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => patchLocal(selKey, { textMode: opt.value })}
+                title={opt.title}
+                className={`flex flex-1 items-center justify-center rounded border py-1.5 text-[10px] font-semibold transition-all ${
+                  textMode === opt.value
+                    ? "border-sky-500/60 bg-sky-500/15 text-sky-300"
+                    : "border-neutral-700 bg-neutral-900 text-neutral-500 hover:text-neutral-300 hover:border-neutral-600"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {textMode === "area" && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="text-[10px] text-neutral-400 flex-shrink-0">
+                Frame Height
+              </span>
+              <input
+                type="number"
+                min={10}
+                max={2000}
+                step={1}
+                value={areaHeight ?? ""}
+                placeholder="auto"
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const v = raw === "" ? null : Number(raw);
+                  patchLocal(selKey, { areaHeight: v === null || Number.isNaN(v) ? null : v });
+                }}
+                className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-right text-[11px] font-mono outline-none focus:border-sky-400"
+              />
+              <span className="text-[10px] text-neutral-500">px</span>
+              {areaHeight != null && (
+                <button
+                  onClick={() => patchLocal(selKey, { areaHeight: null })}
+                  title="Auto (row height)"
+                  className="text-neutral-600 hover:text-sky-400"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Reset layer overrides */}
       <button
-        onClick={() => patchLocal(selKey, { fontPx: undefined, leading: undefined, tracking: undefined, vScale: undefined, hScale: undefined, baseline: undefined, align: undefined })}
+        onClick={() => patchLocal(selKey, { fontPx: undefined, leading: undefined, tracking: undefined, vScale: undefined, hScale: undefined, baseline: undefined, align: undefined, textMode: undefined, areaHeight: undefined })}
         className="mt-1 rounded border border-neutral-700 bg-neutral-900 py-1 text-[10px] text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
       >
         রিসেট লেয়ার
