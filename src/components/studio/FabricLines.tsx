@@ -502,6 +502,8 @@ const FabricRow = memo(function FabricRow({
             fontFamily={arabicFamily}
             fontSize={aFontPx}
             availableWidth={width - 16}
+            textMode={aTextMode}
+            areaHeight={aAreaHeight}
             onSave={(t) => patchLocal(aLk, { text: t })}
           />
         ) : (
