@@ -927,6 +927,12 @@ function InlineTextEditor({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // Area Text: insert a native line break inside the frame; no cascade.
+      if (textMode === "area") {
+        document.execCommand("insertLineBreak");
+        syncToStore();
+        return;
+      }
       const el = ref.current;
       if (!el) return;
 
