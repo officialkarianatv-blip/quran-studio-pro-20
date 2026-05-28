@@ -16,6 +16,19 @@ import { measureTextWidthCanvas, splitToFitCanvas, splitToFitForLayer } from "./
 
 export type LayerKind = "arabic" | "bangla";
 
+/** True if the given layer at (pageId, rowIndex) is in Area Text mode
+ *  (independent frame — must be skipped by cascade/back-fill). */
+function isAreaLayer(
+  pageId: string,
+  rowIndex: number,
+  layer: LayerKind,
+  localMap: Record<string, LocalOverride>,
+  layerKeyFn: (pid: string, ri: number, l: LayerKind) => string,
+): boolean {
+  const lk = layerKeyFn(pageId, rowIndex, layer);
+  return localMap[lk]?.textMode === "area";
+}
+
 /**
  * Measures the rendered pixel width of `text`.
  * Uses Canvas API — no DOM reads, no Layout Thrashing.
