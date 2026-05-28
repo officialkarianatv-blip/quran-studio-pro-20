@@ -463,7 +463,7 @@ const FabricRow = memo(function FabricRow({
           left: 0,
           top: L.symH,
           width,
-          height: L.arH,
+          height: aTextMode === "area" ? (aAreaHeight ?? L.arH) : L.arH,
           paddingLeft: 8,
           paddingRight: 8,
           boxSizing: "border-box",
