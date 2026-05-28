@@ -790,13 +790,15 @@ function CharacterPanel({
   const align    = ov.align    ?? "justify";
   const textMode = (ov.textMode ?? "point") as "point" | "area";
   const areaHeight = ov.areaHeight ?? null;
+  // selKey looks like "layer:<pageId>:<rowIdx>:<arabic|bangla|symbol>"
+  const layerFromKey = (selKey.split(":")[3] ?? null) as LinkLayer | null;
+  const linked = useLinkingStore((s) => (layerFromKey ? s[layerFromKey] : false));
   const willFanOut = scope !== "general" && linked;
   const isReflowLayer = layerFromKey === "arabic" || layerFromKey === "bangla";
 
   // Auto-fit Frame Height (Area mode)
   const { activeFamily } = useFont();
   const pages = useReflowStore((s) => s.pages);
-  const localMap = useOverridesStore((s) => s.local);
   const parts = selKey.split(":");
   const pageIdFromKey = parts[1] ?? "";
   const rowIdxFromKey = Number(parts[2] ?? -1);
@@ -809,7 +811,7 @@ function CharacterPanel({
       pageIdFromKey,
       rowIdxFromKey,
       layerFromKey as "arabic" | "bangla",
-      page.lines,
+      page.lines as never,
       localMap,
       layerKey,
     );
@@ -828,10 +830,6 @@ function CharacterPanel({
     patchLocal(selKey, { areaHeight: h });
   };
 
-  const layerFromKey = (selKey.split(":")[3] ?? null) as LinkLayer | null;
-  const linked = useLinkingStore((s) => (layerFromKey ? s[layerFromKey] : false));
-  const willFanOut = scope !== "general" && linked;
-  const isReflowLayer = layerFromKey === "arabic" || layerFromKey === "bangla";
 
   const set = (k: string, v: number | string) => {
     if (
