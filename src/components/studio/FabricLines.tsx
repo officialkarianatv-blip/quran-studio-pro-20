@@ -772,6 +772,13 @@ function InlineTextEditor({
     const el = ref.current;
     if (!el) return;
 
+    // Area Text mode: CSS handles wrapping inside the frame. No cascade, no
+    // splitToFit, no dialog — just persist the text.
+    if (textMode === "area") {
+      syncToStore();
+      return;
+    }
+
     // Always sync current text first (covers normal typing)
     syncToStore();
 
