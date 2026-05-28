@@ -791,6 +791,7 @@ function CharacterPanel({
   const layerFromKey = (selKey.split(":")[3] ?? null) as LinkLayer | null;
   const linked = useLinkingStore((s) => (layerFromKey ? s[layerFromKey] : false));
   const willFanOut = scope !== "general" && linked;
+  const isReflowLayer = layerFromKey === "arabic" || layerFromKey === "bangla";
 
   const set = (k: string, v: number | string) => {
     if (
