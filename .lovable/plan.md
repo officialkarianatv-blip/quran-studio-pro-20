@@ -1,50 +1,77 @@
-## STEP 2 — FabricLines Arabic/Bangla display divs — Area Text style support
+## STEP 3 — InlineTextEditor — Area Text editing support
 
 ### লক্ষ্য
-`FabricRow` কম্পোনেন্টের Arabic ও Bangla display div-এ `textMode` অনুযায়ী conditional CSS apply করা, যাতে STEP 1-এ যোগ করা `textMode: "area"` কাজ করে। STEP 3 (InlineTextEditor) এই STEP-এর পরে আসবে।
+Editing mode-এ `textMode === "area"` হলে contenteditable wrap করবে (cascade নয়), Point mode-এ বর্তমান cascade behavior অপরিবর্তিত থাকবে।
 
 ### পরিবর্তন — `src/components/studio/FabricLines.tsx`
 
-**2A — `aOv` derived values (line ~225 এর পরে) এ যোগ:**
+**3A — `InlineTextEditor` props-এ `textMode` ও `areaHeight` যোগ করো (line ~657-669):**
 ```typescript
-const aTextMode = aOv?.textMode ?? "point";
-const aAreaHeight = aOv?.areaHeight ?? null;
+textMode: "point" | "area";
+areaHeight: number | null;
 ```
 
-**2B — `bOv` derived values (line ~240 এর পরে) এ যোগ:**
+**3B — দুই call site-এ props পাস করো:**
+- Arabic call (line ~492-506):
+  ```typescript
+  textMode={aTextMode}
+  areaHeight={aAreaHeight}
+  ```
+- Bangla call (line ~614 এর কাছাকাছি — Bangla `<InlineTextEditor`):
+  ```typescript
+  textMode={bTextMode}
+  areaHeight={bAreaHeight}
+  ```
+
+**3C — Editor `<div>` style (line ~1121-1135):** conditional করো:
+- `whiteSpace: textMode === "area" ? "normal" : "nowrap"`
+- `overflow: "hidden"` (অপরিবর্তিত — Area mode-এ frame-এর বাইরে clip)
+- নতুন (area mode-এ only):
+  - `wordBreak: textMode === "area" ? "break-word" : undefined`
+  - `overflowWrap: textMode === "area" ? "break-word" : undefined`
+  - `minHeight: textMode === "area" ? (areaHeight ?? undefined) : "1em"`
+
+**3D — `checkOverflow` (line ~762):** শুরুতে early return যোগ করো —
 ```typescript
-const bTextMode = bOv?.textMode ?? "point";
-const bAreaHeight = bOv?.areaHeight ?? null;
+if (textMode === "area") {
+  rafRef.current = null;
+  syncToStore();
+  return;
+}
+```
+এতে Area mode-এ cascade / splitToFit / dialog কোনোটাই trigger হবে না — শুধু text store-এ sync হবে। (STEP 5-এ reflow engine-এও same early-return যাবে।)
+
+**3E — `handleKeyDown` Enter branch (line ~913):** Area mode-এ cascade-based split skip — default contenteditable behavior allow করো অথবা explicit newline insert করো:
+```typescript
+if (e.key === "Enter" && !e.shiftKey) {
+  if (textMode === "area") {
+    // Allow native line break inside the frame; prevent <div> wrapping.
+    e.preventDefault();
+    document.execCommand("insertLineBreak");
+    return;
+  }
+  // ... existing cascade Enter logic unchanged ...
+}
 ```
 
-**2C — Arabic display div style (lines 462, 475–476):**
-- `height: L.arH` → `height: aTextMode === "area" ? (aAreaHeight ?? L.arH) : L.arH`
-- `whiteSpace: "nowrap"` → `whiteSpace: aTextMode === "area" ? "normal" : "nowrap"`
-- `overflow: "visible"` → `overflow: aTextMode === "area" ? "hidden" : "visible"`
-- নতুন property যোগ (area mode-এ only effective):
-  - `wordBreak: aTextMode === "area" ? "break-word" : undefined`
-  - `overflowWrap: aTextMode === "area" ? "break-word" : undefined`
-  - `direction: "rtl"` (Arabic RTL wrap-এর জন্য — ইতিমধ্যে `dir="rtl"` attribute আছে, CSS hint হিসেবে)
-  - `unicodeBidi: aTextMode === "area" ? "plaintext" : undefined`
-
-**2D — Bangla display div style (lines 583, 597):**
-- `height: L.bnH` → `height: bTextMode === "area" ? (bAreaHeight ?? L.bnH) : L.bnH`
-- `whiteSpace: "normal"` → `whiteSpace: bTextMode === "area" ? "normal" : "nowrap"` (Point mode-এ now nowrap, Area mode-এ wrap — Plan-এর intent অনুযায়ী)
-- `overflow: "visible"` → `overflow: bTextMode === "area" ? "hidden" : "visible"`
-- নতুন: `wordBreak: bTextMode === "area" ? "break-word" : "normal"`
-
-### Bangla `whiteSpace` change নিয়ে নোট
-
-বর্তমানে Bangla layer-এ `whiteSpace: "normal"` (অর্থাৎ default-এ visual wrap হয়)। Plan-এ Bangla Point mode-এ `"nowrap"` করতে বলা হয়েছে — এটা একটা behavior change যা existing Bangla rendering-কে প্রভাবিত করতে পারে। তবে STEP 1-7 plan-এর consistency এর জন্য (Point = nowrap+cascade, Area = wrap) এটাই সঠিক।
+**3F — `handleKeyDown` Backspace-at-start collapse branch (line ~1084 এর কাছাকাছি, `rowIndex === 0` block):** Area mode-এ collapse skip:
+```typescript
+if (textMode === "area") {
+  // Let default Backspace just edit inside the area; no row collapse.
+  return;
+}
+```
+(এটা শুধু তখনই hit হয় যখন backspace cursor row-শুরুতে; safe to skip in area mode।)
 
 ### যা পরিবর্তন হবে না
-
-- InlineTextEditor (STEP 3)
 - PropertiesPanel UI toggle (STEP 4)
-- reflow logic (STEP 5)
-- কোনো অন্য কম্পোনেন্ট
+- `reflowFromAsync` / `planCascade` engine (STEP 5)
+- `calculateAreaTextHeight` helper (STEP 6)
+- Auto-fit button (STEP 7)
+- LocalOverride type (STEP 1-এ done)
+- FabricLines display divs (STEP 2-এ done)
 
 ### Verification
-- Build পাস হবে।
-- Default (`textMode === "point"`) সবার জন্য — শুধু Bangla `whiteSpace` `normal → nowrap` হবে (intentional per plan)।
-- DevTools-এ override-এ `textMode: "area"` সেট করলে div-এ wrap হবে (UI toggle STEP 4 এ আসবে; এখন শুধু render layer ready)।
+- TypeScript build পাস হবে (নতুন required props দুই call site-এ provided)।
+- Default behavior (Point mode): cascade, dialog, splitToFit সব আগের মতো কাজ করবে।
+- DevTools override-এ `textMode: "area"` সেট করে edit শুরু করলে: editor frame-এ text wrap হবে, Enter চাপলে newline পড়বে, cascade dialog আসবে না।
