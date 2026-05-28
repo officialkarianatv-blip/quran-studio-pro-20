@@ -129,6 +129,11 @@ export function reflowFrom(opts: ReflowOptions): void {
     const firstRow = pi === startPageIdx ? startRowIndex : 0;
 
     for (let ri = firstRow; ri < page.lines.length; ri++) {
+      // Skip Area-mode rows — independent frames don't participate in cascade.
+      if (
+        !(pi === startPageIdx && ri === startRowIndex) &&
+        isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
+      ) continue;
       const lk = layerKeyFn(page.id, ri, layer);
       // Get existing text for this row (only for rows after the start)
       const existingText =
