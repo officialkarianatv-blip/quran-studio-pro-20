@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, BookOpen, Clock, Globe,
-  Link2, RotateCcw, ScanLine, Type, Move
+  Link2, RotateCcw, ScanLine, Type, Move, Wand2
 } from "lucide-react";
 import { useEditorStore, type SelectionScope } from "@/state/editorStore";
 import { resetToSessionBaseline, useOverridesStore, type GlobalOverrides, type LocalOverride, layerKey, patchScoped, effectiveScope, effectiveScopeForRow } from "@/state/overridesStore";
@@ -15,10 +15,14 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ARABIC_FONT_PX, BANGLA_FONT_PX } from "./FabricLines";
-import { isTypographyField } from "@/lib/typographyReflow";
+import { ARTBOARD_TEXT_WIDTH, DEFAULT_BANGLA_FONT_FAMILY, isTypographyField } from "@/lib/typographyReflow";
 import { getContextPageId } from "@/lib/editorContext";
 import { useTypographyPatch } from "@/hooks/useTypographyPatch";
 import { ScopeImpactWarningDialog } from "./ScopeImpactWarningDialog";
+import { calculateAreaTextHeight } from "@/lib/areaTextHeight";
+import { getEffectiveText } from "@/lib/textReflow";
+import { useFont } from "@/context/FontContext";
+
 
 
 const SCOPE_META: Record<SelectionScope, { labelBn: string; color: string; icon: React.ElementType; desc: string }> = {
