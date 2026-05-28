@@ -299,6 +299,18 @@ export function backFillFrom(opts: BackFillOptions): void {
       nRi = 0;
     }
     if (nPi >= targetPages.length) break;
+
+    // Skip past Area-mode next rows — they don't donate text.
+    while (
+      nPi < targetPages.length &&
+      targetPages[nPi] &&
+      nRi < targetPages[nPi].lines.length &&
+      isAreaLayer(targetPages[nPi].id, nRi, layer, localMap, layerKeyFn)
+    ) {
+      nRi += 1;
+      if (nRi >= targetPages[nPi].lines.length) { nPi += 1; nRi = 0; }
+    }
+    if (nPi >= targetPages.length) break;
     const nextPage = targetPages[nPi];
     if (!nextPage || nextPage.lines.length === 0) break;
 
