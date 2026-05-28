@@ -502,6 +502,8 @@ const FabricRow = memo(function FabricRow({
             fontFamily={arabicFamily}
             fontSize={aFontPx}
             availableWidth={width - 16}
+            textMode={aTextMode}
+            areaHeight={aAreaHeight}
             onSave={(t) => patchLocal(aLk, { text: t })}
           />
         ) : (
@@ -624,6 +626,8 @@ const FabricRow = memo(function FabricRow({
             fontFamily={banglaFamily}
             fontSize={bFontPx}
             availableWidth={width - 16}
+            textMode={bTextMode}
+            areaHeight={bAreaHeight}
             onSave={(t) => patchLocal(bLk, { text: t })}
           />
         ) : (
@@ -653,6 +657,8 @@ function InlineTextEditor({
   fontFamily,
   fontSize,
   availableWidth,
+  textMode,
+  areaHeight,
   onSave,
 }: {
   layerKey: string;
@@ -666,6 +672,8 @@ function InlineTextEditor({
   fontFamily: string;
   fontSize: number;
   availableWidth: number;
+  textMode: "point" | "area";
+  areaHeight: number | null;
   onSave: (text: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -763,6 +771,13 @@ function InlineTextEditor({
     rafRef.current = null;
     const el = ref.current;
     if (!el) return;
+
+    // Area Text mode: CSS handles wrapping inside the frame. No cascade, no
+    // splitToFit, no dialog — just persist the text.
+    if (textMode === "area") {
+      syncToStore();
+      return;
+    }
 
     // Always sync current text first (covers normal typing)
     syncToStore();
@@ -912,6 +927,12 @@ function InlineTextEditor({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // Area Text: insert a native line break inside the frame; no cascade.
+      if (textMode === "area") {
+        document.execCommand("insertLineBreak");
+        syncToStore();
+        return;
+      }
       const el = ref.current;
       if (!el) return;
 
@@ -1046,6 +1067,8 @@ function InlineTextEditor({
     }
 
     if (e.key === "Backspace") {
+      // Area Text: let default Backspace edit inside the frame; no row collapse.
+      if (textMode === "area") return;
       const el = ref.current;
       if (!el) return;
       const sel = window.getSelection();
@@ -1121,13 +1144,15 @@ function InlineTextEditor({
         style={{
           display: "block",
           width: "100%",
-          minHeight: "1em",
+          minHeight: textMode === "area" ? (areaHeight ?? undefined) : "1em",
           outline: "2px solid rgba(56,189,248,0.7)",
           outlineOffset: "2px",
           borderRadius: "2px",
           background: "rgba(56,189,248,0.06)",
           caretColor: lang === "ar" ? "#f59e0b" : "#34d399",
-          whiteSpace: "nowrap",
+          whiteSpace: textMode === "area" ? "normal" : "nowrap",
+          wordBreak: textMode === "area" ? "break-word" : undefined,
+          overflowWrap: textMode === "area" ? "break-word" : undefined,
           overflow: "hidden",
           cursor: "text",
           userSelect: "text",
