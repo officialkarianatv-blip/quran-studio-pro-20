@@ -1,56 +1,50 @@
-## STEP 1 — `LocalOverride` টাইপে Area Text fields যোগ
-
-পুরো PARAGRAPH_WRAP_PLAN.md (৭ steps) পড়েছি। এটি **শুধু STEP 1** এর plan — InDesign-style Area Text feature এর foundation (type definition)।
+## STEP 2 — FabricLines Arabic/Bangla display divs — Area Text style support
 
 ### লক্ষ্য
-`LocalOverride` টাইপে দুটি optional field যোগ করা যাতে প্রতিটি layer (arabic/bangla) এ Point Text বনাম Area Text mode আলাদাভাবে store করা যায়। পরবর্তী steps (2-7) এই field দুটির উপর নির্ভর করবে।
+`FabricRow` কম্পোনেন্টের Arabic ও Bangla display div-এ `textMode` অনুযায়ী conditional CSS apply করা, যাতে STEP 1-এ যোগ করা `textMode: "area"` কাজ করে। STEP 3 (InlineTextEditor) এই STEP-এর পরে আসবে।
 
-### পরিবর্তন
+### পরিবর্তন — `src/components/studio/FabricLines.tsx`
 
-**ফাইল:** `src/state/overridesStore.ts` (lines 16–32)
-
-বর্তমান `LocalOverride` type-এর শেষে (line 31 `color?` এর পরে) দুটি নতুন field যোগ:
-
+**2A — `aOv` derived values (line ~225 এর পরে) এ যোগ:**
 ```typescript
-export type LocalOverride = {
-  // ... existing fields (dx, dy, scale, fontPx, leading, tracking,
-  // vScale, hScale, baseline, align, text, color) — অপরিবর্তিত ...
-
-  /** "point" = InDesign Point Text (nowrap, cascade to next row) [DEFAULT]
-   *  "area"  = InDesign Area Text (wraps within row bounds, no cascade) */
-  textMode?: "point" | "area";
-
-  /** Area Text-এ custom frame height (px). null/undefined = auto (fit content) */
-  areaHeight?: number | null;
-};
+const aTextMode = aOv?.textMode ?? "point";
+const aAreaHeight = aOv?.areaHeight ?? null;
 ```
 
-### কেন এটাই যথেষ্ট STEP 1-এর জন্য
+**2B — `bOv` derived values (line ~240 এর পরে) এ যোগ:**
+```typescript
+const bTextMode = bOv?.textMode ?? "point";
+const bAreaHeight = bOv?.areaHeight ?? null;
+```
 
-- `patchLocal` ইতিমধ্যে generic `Partial<Record<keyof LocalOverride, ...>>` accept করে — নতুন কোনো setter দরকার নেই।
-- `persist` middleware পুরো `local` map serialize করে — নতুন field automatic persist হবে।
-- `temporal` (zundo) undo/redo same map track করে — automatic কাজ করবে।
-- কোনো default value, migration, বা runtime behavior change দরকার নেই — STEP 2-7 সেগুলো handle করবে।
+**2C — Arabic display div style (lines 462, 475–476):**
+- `height: L.arH` → `height: aTextMode === "area" ? (aAreaHeight ?? L.arH) : L.arH`
+- `whiteSpace: "nowrap"` → `whiteSpace: aTextMode === "area" ? "normal" : "nowrap"`
+- `overflow: "visible"` → `overflow: aTextMode === "area" ? "hidden" : "visible"`
+- নতুন property যোগ (area mode-এ only effective):
+  - `wordBreak: aTextMode === "area" ? "break-word" : undefined`
+  - `overflowWrap: aTextMode === "area" ? "break-word" : undefined`
+  - `direction: "rtl"` (Arabic RTL wrap-এর জন্য — ইতিমধ্যে `dir="rtl"` attribute আছে, CSS hint হিসেবে)
+  - `unicodeBidi: aTextMode === "area" ? "plaintext" : undefined`
+
+**2D — Bangla display div style (lines 583, 597):**
+- `height: L.bnH` → `height: bTextMode === "area" ? (bAreaHeight ?? L.bnH) : L.bnH`
+- `whiteSpace: "normal"` → `whiteSpace: bTextMode === "area" ? "normal" : "nowrap"` (Point mode-এ now nowrap, Area mode-এ wrap — Plan-এর intent অনুযায়ী)
+- `overflow: "visible"` → `overflow: bTextMode === "area" ? "hidden" : "visible"`
+- নতুন: `wordBreak: bTextMode === "area" ? "break-word" : "normal"`
+
+### Bangla `whiteSpace` change নিয়ে নোট
+
+বর্তমানে Bangla layer-এ `whiteSpace: "normal"` (অর্থাৎ default-এ visual wrap হয়)। Plan-এ Bangla Point mode-এ `"nowrap"` করতে বলা হয়েছে — এটা একটা behavior change যা existing Bangla rendering-কে প্রভাবিত করতে পারে। তবে STEP 1-7 plan-এর consistency এর জন্য (Point = nowrap+cascade, Area = wrap) এটাই সঠিক।
 
 ### যা পরিবর্তন হবে না
 
-- `MASTER_DEFAULTS`, `GlobalOverrides`, `resetScoped`, কোনো helper বা store action — কিছুই না।
-- `FabricLines.tsx`, `PropertiesPanel.tsx`, `textReflow.ts`, `canvasMeasure.ts` — STEP 2-7 পর্যন্ত অপরিবর্তিত।
-- কোনো reflow/render behavior — field optional এবং কোথাও read হচ্ছে না।
+- InlineTextEditor (STEP 3)
+- PropertiesPanel UI toggle (STEP 4)
+- reflow logic (STEP 5)
+- কোনো অন্য কম্পোনেন্ট
 
-### Verification (Build mode-এ)
-
-1. TypeScript build পাস হবে (নতুন optional field, breaking নয়)।
-2. বিদ্যমান কোনো call site ভাঙবে না — `keyof LocalOverride` এর সাথে compatible।
-3. `ov.textMode` / `ov.areaHeight` read করলে `undefined` আসবে (default Point Text behavior preserved)।
-
-### পরবর্তী steps (এই plan-এ অন্তর্ভুক্ত নয়)
-
-STEP 2: FabricLines Arabic/Bangla render — Area Text style
-STEP 3: InlineTextEditor — wrap enable
-STEP 4: PropertiesPanel — Point/Area toggle UI
-STEP 5: textReflow — Area mode early return
-STEP 6: canvasMeasure — calculateAreaTextHeight
-STEP 7: Auto-fit Frame Height button
-
-আপনি approve করলে আমি শুধু STEP 1 implement করব। STEP 2 এর জন্য আবার plan চাইলে জানাবেন।
+### Verification
+- Build পাস হবে।
+- Default (`textMode === "point"`) সবার জন্য — শুধু Bangla `whiteSpace` `normal → nowrap` হবে (intentional per plan)।
+- DevTools-এ override-এ `textMode: "area"` সেট করলে div-এ wrap হবে (UI toggle STEP 4 এ আসবে; এখন শুধু render layer ready)।

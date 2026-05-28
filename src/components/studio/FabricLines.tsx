@@ -225,6 +225,8 @@ const FabricRow = memo(function FabricRow({
   const aAlign = (aOv?.align ?? "justify") as React.CSSProperties["textAlign"];
   const aText = aOv?.text ?? slot.arabic ?? "";
   const isArabicEditing = isTypeTool && selectionKey === aLk && selectionPageId === pageId;
+  const aTextMode = aOv?.textMode ?? "point";
+  const aAreaHeight = aOv?.areaHeight ?? null;
 
   // Bangla layer
   const bDx = bOv?.dx ?? 0;
@@ -240,6 +242,8 @@ const FabricRow = memo(function FabricRow({
   const bAlign = (bOv?.align ?? "justify") as React.CSSProperties["textAlign"];
   const bText = bOv?.text ?? slot.bangla ?? "";
   const isBanglaEditing = isTypeTool && selectionKey === bLk && selectionPageId === pageId;
+  const bTextMode = bOv?.textMode ?? "point";
+  const bAreaHeight = bOv?.areaHeight ?? null;
 
   const sDx = sOv?.dx ?? 0;
   const sDy = sOv?.dy ?? 0;
@@ -459,7 +463,7 @@ const FabricRow = memo(function FabricRow({
           left: 0,
           top: L.symH,
           width,
-          height: L.arH,
+          height: aTextMode === "area" ? (aAreaHeight ?? L.arH) : L.arH,
           paddingLeft: 8,
           paddingRight: 8,
           boxSizing: "border-box",
@@ -472,8 +476,11 @@ const FabricRow = memo(function FabricRow({
           paddingTop: Math.max(0, L.arH * 0.05),
           textAlign: aAlign,
           textAlignLast: aAlign === "justify" ? "justify" : undefined,
-          whiteSpace: "nowrap",
-          overflow: "visible",
+          whiteSpace: aTextMode === "area" ? "normal" : "nowrap",
+          overflow: aTextMode === "area" ? "hidden" : "visible",
+          wordBreak: aTextMode === "area" ? "break-word" : undefined,
+          overflowWrap: aTextMode === "area" ? "break-word" : undefined,
+          unicodeBidi: aTextMode === "area" ? "plaintext" : undefined,
           transform: `translate(${aDx}px, ${gArabicY + aBaseline + aDy}px) scaleX(${aHScale}) scaleY(${aVScale})`,
           transformOrigin: "top left",
           zIndex: 30,
@@ -580,7 +587,7 @@ const FabricRow = memo(function FabricRow({
           left: 0,
           top: L.symH + L.arH,
           width,
-          height: L.bnH,
+          height: bTextMode === "area" ? (bAreaHeight ?? L.bnH) : L.bnH,
           paddingLeft: 8,
           paddingRight: 8,
           boxSizing: "border-box",
@@ -589,12 +596,13 @@ const FabricRow = memo(function FabricRow({
           color: "#064e3b",
           lineHeight: bLineHeight,
           letterSpacing: bTracking,
-          overflow: "visible",
+          overflow: bTextMode === "area" ? "hidden" : "visible",
           display: "block",
           paddingTop: 1,
           textAlign: bAlign,
           textAlignLast: bAlign === "justify" ? "justify" : undefined,
-          whiteSpace: "normal",
+          whiteSpace: bTextMode === "area" ? "normal" : "nowrap",
+          wordBreak: bTextMode === "area" ? "break-word" : "normal",
           transform: `translate(${bDx}px, ${gBanglaY + bBaseline + bDy}px) scaleX(${bHScale}) scaleY(${bVScale})`,
           transformOrigin: "top left",
           zIndex: 10,
