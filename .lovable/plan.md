@@ -1,101 +1,142 @@
-## STEP 5 — Reflow engine: skip Area-mode rows
+## STEP 6 — `calculateAreaTextHeight` helper
 
 ### লক্ষ্য
-`reflowFrom`, `reflowFromAsync`, `backFillFrom`, ও `planCascade` — সবগুলো cascade পথে যেকোনো row যার layer override-এ `textMode === "area"` সেট আছে, সেটি **skip** করবে। Area row independent frame হিসেবে আচরণ করে — তার text পরিবর্তন হবে না, পরবর্তী/পূর্ববর্তী row থেকে কোনো text এতে পুশ/পুল হবে না; cascade তার উপর দিয়ে jump করে পরবর্তী non-area row-এ যাবে।
+একটি pure helper যোগ করো যা text + width + font + leading + (optional explicit line breaks) input নিয়ে wrap-simulation চালিয়ে rendered পিক্সেল উচ্চতা return করে। STEP 7-এর "Auto-fit Frame Height" button এটা ব্যবহার করবে। ভবিষ্যতে FabricLines Area-mode auto-height-এও কাজে আসবে।
 
-### পরিবর্তন — `src/lib/textReflow.ts`
+### পরিবর্তন — নতুন ফাইল `src/lib/areaTextHeight.ts`
 
-**5A — File-level helper যোগ করো (line ~24 এর কাছাকাছি, `measureTextWidth` declare-এর আগে):**
 ```typescript
-/** True if the given layer at (pageId, rowIndex) is in Area Text mode
- *  (independent frame — must be skipped by cascade/back-fill). */
-function isAreaLayer(
-  pageId: string,
-  rowIndex: number,
-  layer: LayerKind,
-  localMap: Record<string, LocalOverride>,
-  layerKeyFn: (pid: string, ri: number, l: LayerKind) => string,
-): boolean {
-  const lk = layerKeyFn(pageId, rowIndex, layer);
-  return localMap[lk]?.textMode === "area";
-}
-```
+/**
+ * areaTextHeight.ts
+ * ─────────────────
+ * Pure simulation: given a paragraph of text and a frame width, compute the
+ * pixel height the contenteditable Area frame would render at.
+ *
+ * Uses Canvas measurement (no DOM reads, no layout thrash). Mirrors the
+ * wrap rules used by `splitToFitForLayer` for parity with the editor.
+ *
+ * Algorithm:
+ *   1. Split `text` on explicit "\n" first (Enter-inserted line breaks).
+ *   2. For each paragraph, run a greedy word-wrap using
+ *      `measureTextWidthCanvas` and accumulate the visual line count.
+ *   3. height = lineCount × Math.max(1, leading) × fontSize  + paddingY
+ *
+ * The caller should pass the same `availableWidth`, `fontFamily`, `fontSize`,
+ * and `leading` used by the render layer (see FabricLines.tsx Arabic/Bangla
+ * style blocks).
+ */
 
-**5B — `reflowFrom` (line 118 এর inner row loop):** row-iteration শুরুতে guard যোগ করো:
-```typescript
-for (let ri = firstRow; ri < page.lines.length; ri++) {
-  // Skip Area-mode rows entirely — they are independent frames.
-  if (
-    !(pi === startPageIdx && ri === startRowIndex) && // start row already written by caller
-    isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
-  ) continue;
-  // ... existing body unchanged ...
-}
-```
+import { measureTextWidthCanvas } from "./canvasMeasure";
+import { splitArabicWords } from "./wordSplit";
 
-**5C — `reflowFromAsync` (line 181 এর inner row loop):** একই guard যোগ করো (same condition)।
+export type CalculateAreaTextHeightOptions = {
+  text: string;
+  /** Inner width available for wrap (already excludes horizontal padding). */
+  availableWidth: number;
+  fontFamily: string;
+  fontSize: number;
+  /** Leading multiplier (e.g. 1, 1.1, 1.2). Falls back to 1 if 0/undefined. */
+  leading?: number;
+  /** "arabic" uses Arabic-aware tokeniser; otherwise whitespace split. */
+  layer?: "arabic" | "bangla";
+  /** Extra vertical padding to add (top + bottom). Default 2. */
+  paddingY?: number;
+  /** Minimum height in px. Default 0. */
+  minHeight?: number;
+};
 
-**5D — `backFillFrom` (line ~268 এর "next row" lookup):** next row resolve করার পরে, যদি next row area-mode হয় তাহলে jump:
-```typescript
-// Find next row (same page, else next page row 0).
-let nPi = pi;
-let nRi = ri + 1;
-if (nRi >= curPage.lines.length) { nPi = pi + 1; nRi = 0; }
-if (nPi >= targetPages.length) break;
+function countWrappedLinesForParagraph(
+  paragraph: string,
+  availableWidth: number,
+  fontFamily: string,
+  fontSize: number,
+  layer: "arabic" | "bangla",
+): number {
+  if (!paragraph.trim()) return 1; // blank line still occupies one row
 
-// Skip past Area-mode next rows — they don't donate text.
-while (
-  nPi < targetPages.length &&
-  targetPages[nPi] &&
-  nRi < targetPages[nPi].lines.length &&
-  isAreaLayer(targetPages[nPi].id, nRi, layer, localMap, layerKeyFn)
-) {
-  nRi += 1;
-  if (nRi >= targetPages[nPi].lines.length) { nPi += 1; nRi = 0; }
-}
-if (nPi >= targetPages.length) break;
-const nextPage = targetPages[nPi];
-if (!nextPage || nextPage.lines.length === 0) break;
-```
-এতে যদি current row `ri`-ও area হয় (defensive) — uppermost caller থেকেই এই function call হওয়ার আগে সাধারণত area row থেকে back-fill trigger হবে না, কিন্তু extra safety-এর জন্য function-এর শুরুতে যোগ করো:
-```typescript
-if (isAreaLayer(startPageId, startRowIndex, layer, localMap, layerKeyFn)) return;
-```
+  const words =
+    layer === "arabic" ? splitArabicWords(paragraph) : paragraph.split(/\s+/).filter(Boolean);
 
-**5E — `planCascade` (line 518 এর while loop):** carry propagate করার সময় area row skip:
-```typescript
-while (carry !== "" && pi < allPages.length) {
-  const page = allPages[pi];
-  if (!page) break;
-  if (ri >= page.lines.length) { pi += 1; ri = 0; continue; }
+  if (words.length === 0) return 1;
+  // Single-word oversize: still one line (no glyph break).
+  if (words.length === 1) return 1;
 
-  // Area-mode row: jump over it without consuming carry.
-  if (isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)) {
-    ri += 1;
-    continue;
+  let lineCount = 1;
+  let current = "";
+  for (let i = 0; i < words.length; i++) {
+    const candidate = current ? current + " " + words[i] : words[i]!;
+    if (measureTextWidthCanvas(candidate, fontFamily, fontSize) <= availableWidth) {
+      current = candidate;
+    } else {
+      if (current === "") {
+        // first word overflows alone — still counts as one line, keep going
+        current = "";
+        lineCount += 1; // current word placed on its own line
+        // place current token as its own line
+      } else {
+        lineCount += 1;
+        current = words[i]!;
+      }
+    }
   }
+  return lineCount;
+}
 
-  // ... existing existing/combined/splitToFit logic unchanged ...
+export function calculateAreaTextHeight(opts: CalculateAreaTextHeightOptions): number {
+  const {
+    text,
+    availableWidth,
+    fontFamily,
+    fontSize,
+    leading,
+    layer = "bangla",
+    paddingY = 2,
+    minHeight = 0,
+  } = opts;
+
+  if (availableWidth <= 0 || fontSize <= 0) return Math.max(minHeight, fontSize);
+
+  const lh = Math.max(1, leading || 1);
+  const lineHeightPx = fontSize * lh;
+
+  const paragraphs = (text ?? "").split("\n");
+  let totalLines = 0;
+  for (const p of paragraphs) {
+    totalLines += countWrappedLinesForParagraph(
+      p,
+      availableWidth,
+      fontFamily,
+      fontSize,
+      layer,
+    );
+  }
+  if (totalLines === 0) totalLines = 1;
+
+  return Math.max(minHeight, Math.ceil(totalLines * lineHeightPx + paddingY));
 }
 ```
 
 ### সিদ্ধান্ত
 
-- Start row যদি area-mode-এ থাকে: `reflowFrom`/`reflowFromAsync`-এর caller (FabricLines `checkOverflow`) STEP 3-এ ইতিমধ্যেই early-return করে — তাই start row area-mode-এ কখনোই এই function-এ পৌঁছাবে না। তবু `reflowFrom`/`reflowFromAsync`-এ start row-এর জন্য guard skip করা **হবে না** (caller-এর responsibility); শুধু subsequent rows skip হবে।
-- Tail overflow: যদি cascade-এর শেষে carry-text রয়ে যায় (সব subsequent rows area বা scope শেষ), সেটা `tailOverflow`-এ যাবে (existing behavior)। caller dialog-এ এটা দেখাবে।
-- কোনো নতুন store/event/migration নেই — শুধু read-only check।
+- Pure function — কোনো DOM ref, store read, বা React lifecycle নেই।
+- `availableWidth` সরাসরি render-time inner-width (FabricLines-এ `width - 16`); caller responsibility।
+- `leading` — fallback `1` (matches FabricLines `aLineHeight = Math.max(1, aLeading * aScaleFactor)` semantics with scaleFactor=1; STEP 7 caller scaleFactor consider করবে if needed)।
+- `paddingY = 2` ম্যাচ করে FabricLines Bangla `paddingTop: 1` + estimated bottom margin; default conservative।
+- Arabic vs Bangla tokeniser switch — STEP 7 Auto-fit button arabic হলে `layer: "arabic"` পাস করবে।
+- SSR-safe — `measureTextWidthCanvas` ইতিমধ্যে SSR-guarded।
 
 ### যা পরিবর্তন হবে না
-- `splitToFit` / `splitToFitForLayer` / `getEffectiveText`
-- `collapseLineBreakBackward` — এটা Backspace-merge logic; area mode-এ Backspace-collapse already STEP 3-এ block করা।
-- `reflowLayerText` — internally `reflowFromAsync` কল করে, তাই auto-inherit।
-- কোনো UI/state/component।
+
+- `canvasMeasure.ts` (নতুন helper alone, পুরাতন exports অপরিবর্তিত)
+- FabricLines render layers (STEP 2)
+- reflow engine (STEP 5)
+- কোনো UI
 
 ### Verification
-- Build পাস হবে।
-- Default behavior (সব row point mode): কোনো change নেই — `isAreaLayer` সবসময় false।
-- DevTools-এ row N-এ `textMode: "area"` সেট করে row N-1-এ overflow তৈরি করলে — cascade row N skip করে row N+1-এ যাবে; row N-এর text অটুট থাকবে।
-- BackFill: area row-এর পরের row থেকে word pull-back করার সময় area row skip হবে।
 
-### STEP 6 প্রিভিউ
-`calculateAreaTextHeight(text, fontFamily, fontSize, width, leading)` helper যোগ করা — DOM measure / canvas-based wrap simulation। STEP 7-এর Auto-fit button এটা ব্যবহার করবে।
+- Build পাস হবে (নতুন file, কোনো existing import touch নয়)।
+- Manual: `calculateAreaTextHeight({ text: "hello world foo bar", availableWidth: 50, fontFamily: "sans-serif", fontSize: 16, leading: 1.2 })` → কয়েকটি line এর শোধিত height return করবে।
+
+### STEP 7 প্রিভিউ
+
+PropertiesPanel CharacterPanel-এ "Auto-fit Frame Height" button যোগ করা — Area mode UI block-এ। Click করলে current row-এর effective text, font, leading, width নিয়ে `calculateAreaTextHeight` কল করে `patchLocal(selKey, { areaHeight })` সেট করবে।
