@@ -225,6 +225,8 @@ const FabricRow = memo(function FabricRow({
   const aAlign = (aOv?.align ?? "justify") as React.CSSProperties["textAlign"];
   const aText = aOv?.text ?? slot.arabic ?? "";
   const isArabicEditing = isTypeTool && selectionKey === aLk && selectionPageId === pageId;
+  const aTextMode = aOv?.textMode ?? "point";
+  const aAreaHeight = aOv?.areaHeight ?? null;
 
   // Bangla layer
   const bDx = bOv?.dx ?? 0;
