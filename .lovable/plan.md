@@ -1,103 +1,101 @@
-## STEP 4 — PropertiesPanel: Point / Area Text toggle UI
+## STEP 5 — Reflow engine: skip Area-mode rows
 
 ### লক্ষ্য
-`CharacterPanel`-এ একটি Point ↔ Area toggle এবং Area mode সক্রিয় হলে একটি "Frame Height (px)" input যোগ করো। শুধু arabic/bangla layer-এর জন্য (symbol-এ নয়)।
+`reflowFrom`, `reflowFromAsync`, `backFillFrom`, ও `planCascade` — সবগুলো cascade পথে যেকোনো row যার layer override-এ `textMode === "area"` সেট আছে, সেটি **skip** করবে। Area row independent frame হিসেবে আচরণ করে — তার text পরিবর্তন হবে না, পরবর্তী/পূর্ববর্তী row থেকে কোনো text এতে পুশ/পুল হবে না; cascade তার উপর দিয়ে jump করে পরবর্তী non-area row-এ যাবে।
 
-### পরিবর্তন — `src/components/studio/PropertiesPanel.tsx`
+### পরিবর্তন — `src/lib/textReflow.ts`
 
-**4A — `CharacterPanel`-এ derived values যোগ (line ~786 এর কাছাকাছি, `align` declare-এর পরে):**
+**5A — File-level helper যোগ করো (line ~24 এর কাছাকাছি, `measureTextWidth` declare-এর আগে):**
 ```typescript
-const textMode = (ov.textMode ?? "point") as "point" | "area";
-const areaHeight = ov.areaHeight ?? null;
-const isReflowLayer = layerFromKey === "arabic" || layerFromKey === "bangla";
+/** True if the given layer at (pageId, rowIndex) is in Area Text mode
+ *  (independent frame — must be skipped by cascade/back-fill). */
+function isAreaLayer(
+  pageId: string,
+  rowIndex: number,
+  layer: LayerKind,
+  localMap: Record<string, LocalOverride>,
+  layerKeyFn: (pid: string, ri: number, l: LayerKind) => string,
+): boolean {
+  const lk = layerKeyFn(pageId, rowIndex, layer);
+  return localMap[lk]?.textMode === "area";
+}
 ```
 
-**4B — Paragraph Alignment block-এর পরে (line ~872 এর পরে, রিসেট button-এর আগে) নতুন UI যোগ:**
-```tsx
-{isReflowLayer && (
-  <div className="flex flex-col gap-1.5">
-    <span className="text-[9px] text-neutral-600 uppercase tracking-wider">
-      Text Frame Mode
-    </span>
-    <div className="flex gap-1">
-      {([
-        { value: "point", label: "Point", title: "Point Text — পরের সারিতে ক্যাসকেড" },
-        { value: "area",  label: "Area",  title: "Area Text — ফ্রেমে wrap, ক্যাসকেড নেই" },
-      ] as const).map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => patchLocal(selKey, { textMode: opt.value })}
-          title={opt.title}
-          className={`flex flex-1 items-center justify-center rounded border py-1.5 text-[10px] font-semibold transition-all ${
-            textMode === opt.value
-              ? "border-sky-500/60 bg-sky-500/15 text-sky-300"
-              : "border-neutral-700 bg-neutral-900 text-neutral-500 hover:text-neutral-300 hover:border-neutral-600"
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-
-    {textMode === "area" && (
-      <div className="mt-1.5 flex items-center gap-2">
-        <span className="text-[10px] text-neutral-400 flex-shrink-0">
-          Frame Height
-        </span>
-        <input
-          type="number"
-          min={10}
-          max={2000}
-          step={1}
-          value={areaHeight ?? ""}
-          placeholder="auto"
-          onChange={(e) => {
-            const raw = e.target.value;
-            const v = raw === "" ? null : Number(raw);
-            patchLocal(selKey, { areaHeight: v === null || Number.isNaN(v) ? null : v });
-          }}
-          className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-right text-[11px] font-mono outline-none focus:border-sky-400"
-        />
-        <span className="text-[10px] text-neutral-500">px</span>
-        {areaHeight != null && (
-          <button
-            onClick={() => patchLocal(selKey, { areaHeight: null })}
-            title="Auto (row height)"
-            className="text-neutral-600 hover:text-sky-400"
-          >
-            <RotateCcw className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-    )}
-  </div>
-)}
+**5B — `reflowFrom` (line 118 এর inner row loop):** row-iteration শুরুতে guard যোগ করো:
+```typescript
+for (let ri = firstRow; ri < page.lines.length; ri++) {
+  // Skip Area-mode rows entirely — they are independent frames.
+  if (
+    !(pi === startPageIdx && ri === startRowIndex) && // start row already written by caller
+    isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)
+  ) continue;
+  // ... existing body unchanged ...
+}
 ```
 
-**4C — "রিসেট লেয়ার" button-এর patch object-এ `textMode` ও `areaHeight` যোগ করো (line ~876):**
+**5C — `reflowFromAsync` (line 181 এর inner row loop):** একই guard যোগ করো (same condition)।
+
+**5D — `backFillFrom` (line ~268 এর "next row" lookup):** next row resolve করার পরে, যদি next row area-mode হয় তাহলে jump:
 ```typescript
-patchLocal(selKey, {
-  fontPx: undefined, leading: undefined, tracking: undefined,
-  vScale: undefined, hScale: undefined, baseline: undefined, align: undefined,
-  textMode: undefined, areaHeight: undefined,
-})
+// Find next row (same page, else next page row 0).
+let nPi = pi;
+let nRi = ri + 1;
+if (nRi >= curPage.lines.length) { nPi = pi + 1; nRi = 0; }
+if (nPi >= targetPages.length) break;
+
+// Skip past Area-mode next rows — they don't donate text.
+while (
+  nPi < targetPages.length &&
+  targetPages[nPi] &&
+  nRi < targetPages[nPi].lines.length &&
+  isAreaLayer(targetPages[nPi].id, nRi, layer, localMap, layerKeyFn)
+) {
+  nRi += 1;
+  if (nRi >= targetPages[nPi].lines.length) { nPi += 1; nRi = 0; }
+}
+if (nPi >= targetPages.length) break;
+const nextPage = targetPages[nPi];
+if (!nextPage || nextPage.lines.length === 0) break;
+```
+এতে যদি current row `ri`-ও area হয় (defensive) — uppermost caller থেকেই এই function call হওয়ার আগে সাধারণত area row থেকে back-fill trigger হবে না, কিন্তু extra safety-এর জন্য function-এর শুরুতে যোগ করো:
+```typescript
+if (isAreaLayer(startPageId, startRowIndex, layer, localMap, layerKeyFn)) return;
+```
+
+**5E — `planCascade` (line 518 এর while loop):** carry propagate করার সময় area row skip:
+```typescript
+while (carry !== "" && pi < allPages.length) {
+  const page = allPages[pi];
+  if (!page) break;
+  if (ri >= page.lines.length) { pi += 1; ri = 0; continue; }
+
+  // Area-mode row: jump over it without consuming carry.
+  if (isAreaLayer(page.id, ri, layer, localMap, layerKeyFn)) {
+    ri += 1;
+    continue;
+  }
+
+  // ... existing existing/combined/splitToFit logic unchanged ...
+}
 ```
 
 ### সিদ্ধান্ত
 
-- `textMode`/`areaHeight` সবসময় **per-layer (local)** — কোনো scope/fan-out নয় (`patchScoped` নয়, `patchLocal` direct)। কারণ Area mode একটা physical frame-property, typographic value নয়।
-- symbol layer-এর জন্য toggle দেখানো হবে না (`isReflowLayer` guard)।
-- Area Height empty/null = auto (= `L.arH`/`L.bnH`, STEP 2-এ এটা handle করা)।
-- STEP 7-এ "Auto-fit Frame Height" button যোগ হবে যা content measure করে এই `areaHeight` সেট করবে।
+- Start row যদি area-mode-এ থাকে: `reflowFrom`/`reflowFromAsync`-এর caller (FabricLines `checkOverflow`) STEP 3-এ ইতিমধ্যেই early-return করে — তাই start row area-mode-এ কখনোই এই function-এ পৌঁছাবে না। তবু `reflowFrom`/`reflowFromAsync`-এ start row-এর জন্য guard skip করা **হবে না** (caller-এর responsibility); শুধু subsequent rows skip হবে।
+- Tail overflow: যদি cascade-এর শেষে carry-text রয়ে যায় (সব subsequent rows area বা scope শেষ), সেটা `tailOverflow`-এ যাবে (existing behavior)। caller dialog-এ এটা দেখাবে।
+- কোনো নতুন store/event/migration নেই — শুধু read-only check।
 
 ### যা পরিবর্তন হবে না
-- `LocalOverride` type (STEP 1)
-- FabricLines render layers (STEP 2)
-- InlineTextEditor (STEP 3)
-- reflow engine (STEP 5)
-- কোনো অন্য কম্পোনেন্ট/file
+- `splitToFit` / `splitToFitForLayer` / `getEffectiveText`
+- `collapseLineBreakBackward` — এটা Backspace-merge logic; area mode-এ Backspace-collapse already STEP 3-এ block করা।
+- `reflowLayerText` — internally `reflowFromAsync` কল করে, তাই auto-inherit।
+- কোনো UI/state/component।
 
 ### Verification
-- Build পাস হবে — `patchLocal(selKey, { textMode, areaHeight })` STEP 1-এর type-extended `LocalOverride` accept করে।
-- Arabic বা Bangla layer select → Character panel-এ "Text Frame Mode" toggle দেখা যাবে।
-- Area select করলে height input আসবে; খালি = auto, value দিলে frame height পরিবর্তন হবে (STEP 2/3 render integration ইতিমধ্যে ready)।
+- Build পাস হবে।
+- Default behavior (সব row point mode): কোনো change নেই — `isAreaLayer` সবসময় false।
+- DevTools-এ row N-এ `textMode: "area"` সেট করে row N-1-এ overflow তৈরি করলে — cascade row N skip করে row N+1-এ যাবে; row N-এর text অটুট থাকবে।
+- BackFill: area row-এর পরের row থেকে word pull-back করার সময় area row skip হবে।
+
+### STEP 6 প্রিভিউ
+`calculateAreaTextHeight(text, fontFamily, fontSize, width, leading)` helper যোগ করা — DOM measure / canvas-based wrap simulation। STEP 7-এর Auto-fit button এটা ব্যবহার করবে।
