@@ -784,6 +784,8 @@ function CharacterPanel({
   const hScale   = ov.hScale   ?? 100;
   const baseline = ov.baseline ?? 0;
   const align    = ov.align    ?? "justify";
+  const textMode = (ov.textMode ?? "point") as "point" | "area";
+  const areaHeight = ov.areaHeight ?? null;
 
   // selKey looks like "layer:<pageId>:<rowIdx>:<arabic|bangla|symbol>"
   const layerFromKey = (selKey.split(":")[3] ?? null) as LinkLayer | null;

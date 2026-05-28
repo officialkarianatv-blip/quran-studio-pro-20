@@ -1,77 +1,103 @@
-## STEP 3 — InlineTextEditor — Area Text editing support
+## STEP 4 — PropertiesPanel: Point / Area Text toggle UI
 
 ### লক্ষ্য
-Editing mode-এ `textMode === "area"` হলে contenteditable wrap করবে (cascade নয়), Point mode-এ বর্তমান cascade behavior অপরিবর্তিত থাকবে।
+`CharacterPanel`-এ একটি Point ↔ Area toggle এবং Area mode সক্রিয় হলে একটি "Frame Height (px)" input যোগ করো। শুধু arabic/bangla layer-এর জন্য (symbol-এ নয়)।
 
-### পরিবর্তন — `src/components/studio/FabricLines.tsx`
+### পরিবর্তন — `src/components/studio/PropertiesPanel.tsx`
 
-**3A — `InlineTextEditor` props-এ `textMode` ও `areaHeight` যোগ করো (line ~657-669):**
+**4A — `CharacterPanel`-এ derived values যোগ (line ~786 এর কাছাকাছি, `align` declare-এর পরে):**
 ```typescript
-textMode: "point" | "area";
-areaHeight: number | null;
+const textMode = (ov.textMode ?? "point") as "point" | "area";
+const areaHeight = ov.areaHeight ?? null;
+const isReflowLayer = layerFromKey === "arabic" || layerFromKey === "bangla";
 ```
 
-**3B — দুই call site-এ props পাস করো:**
-- Arabic call (line ~492-506):
-  ```typescript
-  textMode={aTextMode}
-  areaHeight={aAreaHeight}
-  ```
-- Bangla call (line ~614 এর কাছাকাছি — Bangla `<InlineTextEditor`):
-  ```typescript
-  textMode={bTextMode}
-  areaHeight={bAreaHeight}
-  ```
+**4B — Paragraph Alignment block-এর পরে (line ~872 এর পরে, রিসেট button-এর আগে) নতুন UI যোগ:**
+```tsx
+{isReflowLayer && (
+  <div className="flex flex-col gap-1.5">
+    <span className="text-[9px] text-neutral-600 uppercase tracking-wider">
+      Text Frame Mode
+    </span>
+    <div className="flex gap-1">
+      {([
+        { value: "point", label: "Point", title: "Point Text — পরের সারিতে ক্যাসকেড" },
+        { value: "area",  label: "Area",  title: "Area Text — ফ্রেমে wrap, ক্যাসকেড নেই" },
+      ] as const).map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => patchLocal(selKey, { textMode: opt.value })}
+          title={opt.title}
+          className={`flex flex-1 items-center justify-center rounded border py-1.5 text-[10px] font-semibold transition-all ${
+            textMode === opt.value
+              ? "border-sky-500/60 bg-sky-500/15 text-sky-300"
+              : "border-neutral-700 bg-neutral-900 text-neutral-500 hover:text-neutral-300 hover:border-neutral-600"
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
 
-**3C — Editor `<div>` style (line ~1121-1135):** conditional করো:
-- `whiteSpace: textMode === "area" ? "normal" : "nowrap"`
-- `overflow: "hidden"` (অপরিবর্তিত — Area mode-এ frame-এর বাইরে clip)
-- নতুন (area mode-এ only):
-  - `wordBreak: textMode === "area" ? "break-word" : undefined`
-  - `overflowWrap: textMode === "area" ? "break-word" : undefined`
-  - `minHeight: textMode === "area" ? (areaHeight ?? undefined) : "1em"`
-
-**3D — `checkOverflow` (line ~762):** শুরুতে early return যোগ করো —
-```typescript
-if (textMode === "area") {
-  rafRef.current = null;
-  syncToStore();
-  return;
-}
+    {textMode === "area" && (
+      <div className="mt-1.5 flex items-center gap-2">
+        <span className="text-[10px] text-neutral-400 flex-shrink-0">
+          Frame Height
+        </span>
+        <input
+          type="number"
+          min={10}
+          max={2000}
+          step={1}
+          value={areaHeight ?? ""}
+          placeholder="auto"
+          onChange={(e) => {
+            const raw = e.target.value;
+            const v = raw === "" ? null : Number(raw);
+            patchLocal(selKey, { areaHeight: v === null || Number.isNaN(v) ? null : v });
+          }}
+          className="w-20 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-right text-[11px] font-mono outline-none focus:border-sky-400"
+        />
+        <span className="text-[10px] text-neutral-500">px</span>
+        {areaHeight != null && (
+          <button
+            onClick={() => patchLocal(selKey, { areaHeight: null })}
+            title="Auto (row height)"
+            className="text-neutral-600 hover:text-sky-400"
+          >
+            <RotateCcw className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    )}
+  </div>
+)}
 ```
-এতে Area mode-এ cascade / splitToFit / dialog কোনোটাই trigger হবে না — শুধু text store-এ sync হবে। (STEP 5-এ reflow engine-এও same early-return যাবে।)
 
-**3E — `handleKeyDown` Enter branch (line ~913):** Area mode-এ cascade-based split skip — default contenteditable behavior allow করো অথবা explicit newline insert করো:
+**4C — "রিসেট লেয়ার" button-এর patch object-এ `textMode` ও `areaHeight` যোগ করো (line ~876):**
 ```typescript
-if (e.key === "Enter" && !e.shiftKey) {
-  if (textMode === "area") {
-    // Allow native line break inside the frame; prevent <div> wrapping.
-    e.preventDefault();
-    document.execCommand("insertLineBreak");
-    return;
-  }
-  // ... existing cascade Enter logic unchanged ...
-}
+patchLocal(selKey, {
+  fontPx: undefined, leading: undefined, tracking: undefined,
+  vScale: undefined, hScale: undefined, baseline: undefined, align: undefined,
+  textMode: undefined, areaHeight: undefined,
+})
 ```
 
-**3F — `handleKeyDown` Backspace-at-start collapse branch (line ~1084 এর কাছাকাছি, `rowIndex === 0` block):** Area mode-এ collapse skip:
-```typescript
-if (textMode === "area") {
-  // Let default Backspace just edit inside the area; no row collapse.
-  return;
-}
-```
-(এটা শুধু তখনই hit হয় যখন backspace cursor row-শুরুতে; safe to skip in area mode।)
+### সিদ্ধান্ত
+
+- `textMode`/`areaHeight` সবসময় **per-layer (local)** — কোনো scope/fan-out নয় (`patchScoped` নয়, `patchLocal` direct)। কারণ Area mode একটা physical frame-property, typographic value নয়।
+- symbol layer-এর জন্য toggle দেখানো হবে না (`isReflowLayer` guard)।
+- Area Height empty/null = auto (= `L.arH`/`L.bnH`, STEP 2-এ এটা handle করা)।
+- STEP 7-এ "Auto-fit Frame Height" button যোগ হবে যা content measure করে এই `areaHeight` সেট করবে।
 
 ### যা পরিবর্তন হবে না
-- PropertiesPanel UI toggle (STEP 4)
-- `reflowFromAsync` / `planCascade` engine (STEP 5)
-- `calculateAreaTextHeight` helper (STEP 6)
-- Auto-fit button (STEP 7)
-- LocalOverride type (STEP 1-এ done)
-- FabricLines display divs (STEP 2-এ done)
+- `LocalOverride` type (STEP 1)
+- FabricLines render layers (STEP 2)
+- InlineTextEditor (STEP 3)
+- reflow engine (STEP 5)
+- কোনো অন্য কম্পোনেন্ট/file
 
 ### Verification
-- TypeScript build পাস হবে (নতুন required props দুই call site-এ provided)।
-- Default behavior (Point mode): cascade, dialog, splitToFit সব আগের মতো কাজ করবে।
-- DevTools override-এ `textMode: "area"` সেট করে edit শুরু করলে: editor frame-এ text wrap হবে, Enter চাপলে newline পড়বে, cascade dialog আসবে না।
+- Build পাস হবে — `patchLocal(selKey, { textMode, areaHeight })` STEP 1-এর type-extended `LocalOverride` accept করে।
+- Arabic বা Bangla layer select → Character panel-এ "Text Frame Mode" toggle দেখা যাবে।
+- Area select করলে height input আসবে; খালি = auto, value দিলে frame height পরিবর্তন হবে (STEP 2/3 render integration ইতিমধ্যে ready)।
