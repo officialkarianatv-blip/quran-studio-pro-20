@@ -657,6 +657,8 @@ function InlineTextEditor({
   fontFamily,
   fontSize,
   availableWidth,
+  textMode,
+  areaHeight,
   onSave,
 }: {
   layerKey: string;
@@ -670,6 +672,8 @@ function InlineTextEditor({
   fontFamily: string;
   fontSize: number;
   availableWidth: number;
+  textMode: "point" | "area";
+  areaHeight: number | null;
   onSave: (text: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
